@@ -1,8 +1,8 @@
 package hxd;
 import hxd.Key in K;
 
-#if (hlsdl && hldx)
-#error "You shouldn't use both -lib hlsdl and -lib hldx"
+#if (hlsdl && hldx) || (hlsdl && hlmetal) || (hldx && hlmetal)
+#error "You should only use one of -lib hlsdl or -lib hldx or -lib hlmetal. Do not use these together."
 #end
 
 #if hlsdl
@@ -39,6 +39,8 @@ class Window {
 	var window : sdl.Window;
 	#elseif hldx
 	var window : dx.Window;
+	#elseif hlmetal
+	var window : metal.Window;
 	#end
 	var windowWidth = 800;
 	var windowHeight = 600;
@@ -64,6 +66,8 @@ class Window {
 		if( USE_VULKAN ) sdlFlags |= sdl.Window.SDL_WINDOW_VULKAN;
 		#end
 		window = new sdl.Window(title, width, height, sdl.Window.SDL_WINDOWPOS_CENTERED, sdl.Window.SDL_WINDOWPOS_CENTERED, sdlFlags);
+		#elseif hlmetal
+		window = new metal.Window(title, width, height);
 		#elseif hldx
 		final dxFlags = if (!fixed) dx.Window.RESIZABLE else 0;
 		window = new dx.Window(title, width, height, dx.Window.CW_USEDEFAULT, dx.Window.CW_USEDEFAULT, dxFlags);

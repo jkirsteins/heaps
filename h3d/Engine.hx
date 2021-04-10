@@ -69,7 +69,7 @@ class Engine {
 		window.addResizeEvent(onWindowResize);
 		#if macro
 		driver = new h3d.impl.NullDriver();
-		#elseif (js || hlsdl || usegl)
+		#elseif (js || hlsdl || usegl || hlmetal)
 		#if (hlsdl && heaps_vulkan)
 		if( hxd.Window.USE_VULKAN )
 			driver = new h3d.impl.VulkanDriver();
@@ -77,6 +77,8 @@ class Engine {
 		#end
 		#if js
 		driver = js.Browser.supported ? new h3d.impl.GlDriver(antiAlias) : new h3d.impl.NullDriver();
+		#elseif hlmetal
+		driver = new h3d.impl.MetalDriver();
 		#else
 		driver = new h3d.impl.GlDriver(antiAlias);
 		#end
