@@ -66,6 +66,10 @@ class System {
 		#elseif hlsdl
 		if( !sdl.Sdl.processEvents(@:privateAccess hxd.Window.inst.onEvent) )
 			return false;
+		#elseif hlmetal
+		if( !metal.NSApplication.processEvents(@:privateAccess hxd.Window.inst.onEvent) ) {
+			return false;
+		} 
 		#end
 
 		// loop
