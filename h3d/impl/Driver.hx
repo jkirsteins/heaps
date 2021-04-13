@@ -42,6 +42,12 @@ typedef VertexBuffer = haxe.GraphicsDriver.VertexBuffer;
 typedef Texture = haxe.GraphicsDriver.Texture;
 typedef DepthBuffer = haxe.GraphicsDriver.DepthBuffer;
 typedef Query = haxe.GraphicsDriver.Query;
+#elseif hlmetal
+typedef IndexBuffer = { b : metal.Buffer, is32 : Bool };
+typedef VertexBuffer = {};
+typedef Texture = {};
+typedef DepthBuffer = {};
+typedef Query = {};
 #else
 typedef IndexBuffer = {};
 typedef VertexBuffer = {};

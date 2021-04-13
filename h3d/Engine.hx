@@ -78,7 +78,7 @@ class Engine {
 		#if js
 		driver = js.Browser.supported ? new h3d.impl.GlDriver(antiAlias) : new h3d.impl.NullDriver();
 		#elseif hlmetal
-		driver = new h3d.impl.MetalDriver();
+		driver = new h3d.impl.MetalDriver(window.window);
 		#else
 		driver = new h3d.impl.GlDriver(antiAlias);
 		#end

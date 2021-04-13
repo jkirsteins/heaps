@@ -9,6 +9,8 @@ import hxd.Key in K;
 typedef DisplayMode = sdl.Window.DisplayMode;
 #elseif hldx
 typedef DisplayMode = dx.Window.DisplayMode;
+#elseif hlmetal
+typedef DisplayMode = metal.Window.DisplayMode;
 #else
 enum DisplayMode {
 	Windowed;
@@ -113,7 +115,7 @@ class Window {
 	}
 
 	public function resize( width : Int, height : Int ) : Void {
-		#if (hldx || hlsdl)
+		#if (hldx || hlsdl || hlmetal)
 		window.resize(width, height);
 		#end
 		windowWidth = width;
@@ -123,7 +125,7 @@ class Window {
 
 	@:deprecated("Use the displayMode property instead")
 	public function setFullScreen( v : Bool ) : Void {
-		#if (hldx || hlsdl)
+		#if (hldx || hlsdl || hlmetal)
 		window.displayMode = v ? Borderless : Windowed;
 		#end
 	}
@@ -153,7 +155,7 @@ class Window {
 		return false;
 	}
 
-	#if (hldx||hlsdl)
+	#if (hldx||hlsdl||hlmetal)
 
 	function get_vsync() : Bool return window.vsync;
 
@@ -166,7 +168,7 @@ class Window {
 
 	var wasBlurred : Bool;
 
-	function onEvent( e : #if hldx dx.Event #else sdl.Event #end ) : Bool {
+	function onEvent( e : #if hldx dx.Event #elseif hlsdl sdl.Event #else metal.Event #end ) : Bool {
 		var eh = null;
 		switch( e.type ) {
 		case WindowState:
@@ -423,27 +425,27 @@ class Window {
 	#end
 
 	function get_displayMode() : DisplayMode {
-		#if (hldx || hlsdl)
+		#if (hldx || hlsdl || hlmetal)
 		return window.displayMode;
 		#end
 		return Windowed;
 	}
 
 	function set_displayMode( m : DisplayMode ) : DisplayMode {
-		#if (hldx || hlsdl)
+		#if (hldx || hlsdl || hlmetal)
 		window.displayMode = m;
 		#end
 		return displayMode;
 	}
 
 	function get_title() : String {
-		#if (hldx || hlsdl)
+		#if (hldx || hlsdl || hlmetal)
 		return window.title;
 		#end
 		return "";
 	}
 	function set_title( t : String ) : String {
-		#if (hldx || hlsdl)
+		#if (hldx || hlsdl || hlmetal)
 		return window.title = t;
 		#end
 		return "";
