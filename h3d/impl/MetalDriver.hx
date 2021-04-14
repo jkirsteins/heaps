@@ -9,6 +9,10 @@ class MetalDriver extends Driver {
 	var driver: metal.Driver;
 	var debug : Bool;
 
+	var bufferWidth : Int;
+	var bufferHeight : Int;
+
+
 	// public var backBufferFormat : metal.Format = R8G8B8A8_UNORM;
 
 	public function new(window: metal.Window) {
@@ -34,9 +38,10 @@ class MetalDriver extends Driver {
 	}
 
 	override public function hasFeature( f : Feature ): Bool {
+		// https://developer.apple.com/documentation/metal/mtldevice/detecting_gpu_features_and_metal_software_versions?language=objc
 		trace('Querying for feature $f');
 		return switch( f ) {
-			case HardwareAccelerated:
+			case HardwareAccelerated, AllocDepthBuffer:
 				true;
 			default:
 				throw 'Feature check not implemented for $f';
@@ -48,7 +53,12 @@ class MetalDriver extends Driver {
 	}
 
 	override public function isSupportedFormat( fmt : h3d.mat.Data.TextureFormat ): Bool {
-		throw "Not implemented";
+		return switch( fmt ) {
+		case R16F: true;
+		default:
+			trace('isSupportedFormat? $fmt');
+			throw "Not implemented";
+		}
 	}
 
 	override function isDisposed(): Bool {
@@ -88,6 +98,8 @@ class MetalDriver extends Driver {
 	}
 
 	override public function resize( width : Int, height : Int ) {
+		bufferWidth = width;
+		bufferHeight = height;
 		driver.resizeViewport(width, height);
 	}
 
@@ -136,15 +148,35 @@ class MetalDriver extends Driver {
 	}
 
 	override public function allocDepthBuffer( b : h3d.mat.DepthBuffer ) : DepthBuffer {
-		throw "Not implemented";
+		if( b.format == null )
+			@:privateAccess b.format = Depth32Stencil8;
+		switch (b.format) {
+			case Depth32Stencil8:
+				trace('Allocating Depth32Stencil8');
+				driver.setDepthStencilFormat(metal.PixelFormat.Depth32Float_Stencil8);
+			default:
+				throw "Unsupported depth format "+b.format;
+		}
+
+		return { }
 	}
 
 	override public function disposeDepthBuffer( b : h3d.mat.DepthBuffer ) {
 		throw "Not implemented";
 	}
 
+	var defaultDepth : h3d.mat.DepthBuffer;
+
 	override public function getDefaultDepthBuffer() : h3d.mat.DepthBuffer {
-		throw "Not implemented";
+		if( defaultDepth != null )
+			return defaultDepth;
+		defaultDepth = new h3d.mat.DepthBuffer(0, 0);
+		@:privateAccess {
+			defaultDepth.width = this.bufferWidth;
+			defaultDepth.height = this.bufferHeight;
+			defaultDepth.b = allocDepthBuffer(defaultDepth);
+		}
+		return defaultDepth;
 	}
 
 	override public function end() {
@@ -167,7 +199,8 @@ class MetalDriver extends Driver {
 	}
 
 	override public function allocVertexes( m : ManagedBuffer ) : VertexBuffer {
-		throw "Not implemented";
+		if( m.size * m.stride == 0 ) throw "assert";
+		return { b: driver.createVertexBuffer( m.size * m.stride * 4 ), stride: m.stride };
 	}
 
 	override public function allocInstanceBuffer( b : h3d.impl.InstanceBuffer, bytes : haxe.io.Bytes ) {
@@ -210,8 +243,15 @@ class MetalDriver extends Driver {
 		throw "Not implemented";
 	}
 
-	override public function uploadVertexBuffer( v : VertexBuffer, startVertex : Int, vertexCount : Int, buf : hxd.FloatBuffer, bufPos : Int ) {
-		throw "Not implemented";
+	override public function uploadVertexBuffer( v : VertexBuffer, startVertex : Int, vertexCount : Int, buf : hxd.FloatBuffer, bufPos : Int )
+	{
+		var data = hl.Bytes.getArray(buf.getNative()).offset(bufPos<<2);
+
+		driver.updateBuffer(
+			v.b,
+			data,
+			startVertex * v.stride << 2,
+			vertexCount * v.stride << 2);
 	}
 
 	override public function uploadVertexBytes( v : VertexBuffer, startVertex : Int, vertexCount : Int, buf : haxe.io.Bytes, bufPos : Int ) {

@@ -4,6 +4,7 @@ enum DepthFormat {
 	Depth16;
 	Depth24;
 	Depth24Stencil8;
+	Depth32Stencil8;
 }
 
 /**
@@ -30,7 +31,7 @@ class DepthBuffer {
 	public function hasStencil() {
 		return switch( format ) {
 		case Depth16, Depth24: false;
-		case Depth24Stencil8: true;
+		case Depth24Stencil8, Depth32Stencil8: true;
 		}
 	}
 
