@@ -153,7 +153,7 @@ class MetalDriver extends Driver {
 		switch (b.format) {
 			case Depth32Stencil8:
 				trace('Allocating Depth32Stencil8');
-				driver.setDepthStencilFormat(metal.PixelFormat.Depth32Float_Stencil8);
+				driver.setDepthStencilFormat(metal.MTLPixelFormat.MTLPixelFormatDepth32Float_Stencil8);
 			default:
 				throw "Unsupported depth format "+b.format;
 		}
@@ -187,8 +187,64 @@ class MetalDriver extends Driver {
 		this.debug = d;
 	}
 
+	private function _raiseNotImplIf( flags: haxe.EnumFlags<h3d.mat.Data.TextureFlags>, f: h3d.mat.Data.TextureFlags )
+	{
+		if (flags.has(f))
+			throw '$f support not implemented';
+	}
+
+	function getTextureFormat( t : h3d.mat.Texture ) : metal.MTLPixelFormat {
+		return switch( t.format ) {
+		case RGBA: MTLPixelFormatRGBA8Unorm;
+		case RGBA16F: MTLPixelFormatRGBA16Float;
+		case RGBA32F: MTLPixelFormatRGBA32Float;
+		case R32F: MTLPixelFormatR32Float;
+		case R16F: MTLPixelFormatR16Float;
+		case R8: MTLPixelFormatR8Unorm;
+		case RG8: MTLPixelFormatRG8Unorm;
+		case RG16F: MTLPixelFormatRG16Float;
+		case RG32F: MTLPixelFormatRG32Float;
+		case RGB10A2: MTLPixelFormatRGB10A2Unorm;
+		case RG11B10UF: MTLPixelFormatRG11B10Float;
+		case SRGB_ALPHA: MTLPixelFormatRGBA8Unorm_sRGB;
+		case S3TC(n):
+			switch( n ) {
+			case 1: MTLPixelFormatBC1_RGBA;
+			default: throw "assert";
+			}
+		default: throw "Unsupported texture format " + t.format;
+		}
+	}
+
 	override public function allocTexture( t : h3d.mat.Texture ) : Texture {
-		throw "Not implemented";
+
+		_raiseNotImplIf(t.flags, Target);
+		_raiseNotImplIf(t.flags, Cube);
+		_raiseNotImplIf(t.flags, ManualMipMapGen);
+		_raiseNotImplIf(t.flags, IsNPOT);
+		// _raiseNotImplIf(t.flags, NoAlloc);
+		_raiseNotImplIf(t.flags, Dynamic);
+		_raiseNotImplIf(t.flags, AlphaPremultiplied);
+		_raiseNotImplIf(t.flags, WasCleared);
+		_raiseNotImplIf(t.flags, Loading);
+		_raiseNotImplIf(t.flags, Serialize);
+		_raiseNotImplIf(t.flags, IsArray);
+
+		var mipmapped = t.flags.has(MipMapped);
+
+		var textureDesc = new metal.Proxy_MTLTextureDescriptor();
+		textureDesc.width = t.width;
+		textureDesc.height = t.height;
+		textureDesc.pixelFormat = getTextureFormat(t);
+
+		trace('allocTexture:
+	mips ${t.mipLevels}
+	width ${textureDesc.width}
+	height ${textureDesc.height}
+	pxfmt ${textureDesc.pixelFormat}
+		');
+
+		return { t: driver.createTexture(textureDesc) };
 	}
 
 	override public function allocIndexes( count : Int, is32 : Bool ) : IndexBuffer {
