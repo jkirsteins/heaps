@@ -45,7 +45,7 @@ typedef Query = haxe.GraphicsDriver.Query;
 #elseif hlmetal
 typedef IndexBuffer = { b : metal.Buffer, is32 : Bool };
 typedef VertexBuffer = { b : metal.Buffer, stride : Int };
-typedef Texture = { t: metal.MTLTexturePtr };
+typedef Texture = metal.MTLTexture;
 typedef DepthBuffer = {};
 typedef Query = {};
 #else

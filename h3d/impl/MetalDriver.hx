@@ -244,7 +244,7 @@ class MetalDriver extends Driver {
 	pxfmt ${textureDesc.pixelFormat}
 		');
 
-		return { t: driver.createTexture(textureDesc) };
+		return driver.createTexture(textureDesc);
 	}
 
 	override public function allocIndexes( count : Int, is32 : Bool ) : IndexBuffer {
