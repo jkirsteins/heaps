@@ -3,21 +3,36 @@ import h3d.impl.Driver;
 
 #if hlmetal
 
+private class CompiledShader {
+	public function new() {
+
+	}
+}
+
 class MetalDriver extends Driver {
 
 	var window: metal.Window;
 	var driver: metal.Driver;
 	var debug : Bool;
 
+	var frame : Int;
+
 	var bufferWidth : Int;
 	var bufferHeight : Int;
 
+	var shaders : Map<Int,CompiledShader>;
 
 	// public var backBufferFormat : metal.Format = R8G8B8A8_UNORM;
 
 	public function new(window: metal.Window) {
 		this.window = window;
 		this.driver = new metal.Driver(window);
+
+		reset();
+	}
+
+	function reset() {
+		this.shaders = new Map();
 	}
 
 	override function logImpl(str:String) {
@@ -41,8 +56,10 @@ class MetalDriver extends Driver {
 		// https://developer.apple.com/documentation/metal/mtldevice/detecting_gpu_features_and_metal_software_versions?language=objc
 		trace('Querying for feature $f');
 		return switch( f ) {
-			case HardwareAccelerated, AllocDepthBuffer:
+			case HardwareAccelerated, AllocDepthBuffer, BottomLeftCoords:
 				true;
+			case BottomLeftCoords:
+				false;
 			default:
 				throw 'Feature check not implemented for $f';
 		};
@@ -70,7 +87,7 @@ class MetalDriver extends Driver {
 	}
 
 	override public function begin( frame : Int ) {
-		throw "Not implemented";
+		this.frame = frame;
 	}
 
 	override public function generateMipMaps( texture : h3d.mat.Texture ) {
@@ -82,7 +99,10 @@ class MetalDriver extends Driver {
 	}
 
 	override public function clear( ?color : h3d.Vector, ?depth : Float, ?stencil : Int ) {
-		throw "Not implemented";
+		if (color != null) {
+			trace('Clearing ${color.r} ${color.g} ${color.b} ${color.a}');
+		}
+		trace('IGNORING SETTING CLEAR COLOR');
 	}
 
 	override public function captureRenderBuffer( pixels : hxd.Pixels ) {
@@ -104,7 +124,70 @@ class MetalDriver extends Driver {
 	}
 
 	override public function selectShader( shader : hxsl.RuntimeShader ): Bool {
-		throw "Not implemented";
+		var s = shaders.get(shader.id);
+		if( s == null ) {
+			s = new CompiledShader();
+			trace('Compiling ${shader.vertex.data.name}');
+			var vertex = compileShader(shader.vertex);
+			var fragment = compileShader(shader.fragment);
+		}
+		throw 'Not implemented';
+	}
+
+	function compileShader( shader : hxsl.RuntimeShader.RuntimeShaderData, compileOnly = false ): metal.MTLLibrary {
+		var h = new hxsl.MetalOut();
+		var dxx = new hxsl.HlslOut();
+		var g = new hxsl.GlslOut();
+
+		if( shader.code == null ){
+			trace('HlslOut: ${dxx.run(shader.data)}');
+			trace('GlslOut: ${g.run(shader.data)}');
+			shader.code = h.run(shader.data);
+			trace('MetalOut: ${shader.code}');
+			shader.data.funs = null;
+		}
+
+		return driver.device.newLibraryFromSource(shader.code);
+		// var bytes = getBinaryPayload(shader.code);
+		// if( bytes == null ) {
+		// 	bytes = try dx.Driver.compileShader(shader.code, "", "main", (shader.vertex?"vs_":"ps_") + shaderVersion, OptimizationLevel3) catch( err : String ) {
+		// 		err = ~/^\(([0-9]+),([0-9]+)-([0-9]+)\)/gm.map(err, function(r) {
+		// 			var line = Std.parseInt(r.matched(1));
+		// 			var char = Std.parseInt(r.matched(2));
+		// 			var end = Std.parseInt(r.matched(3));
+		// 			return "\n<< " + shader.code.split("\n")[line - 1].substr(char-1,end - char + 1) +" >>";
+		// 		});
+		// 		throw "Shader compilation error " + err + "\n\nin\n\n" + shader.code;
+		// 	}
+		// 	shader.code += addBinaryPayload(bytes);
+		// }
+		// if( compileOnly )
+		// 	return { s : null, bytes : bytes };
+		// var s = shader.vertex ? Driver.createVertexShader(bytes) : Driver.createPixelShader(bytes);
+		// if( s == null ) {
+		// 	if( hasDeviceError ) return null;
+		// 	throw "Failed to create shader\n" + shader.code;
+		// }
+
+		// var ctx = new ShaderContext(s);
+		// ctx.globalsSize = shader.globalsSize;
+		// ctx.paramsSize = shader.paramsSize;
+		// ctx.paramsContent = new hl.Bytes(shader.paramsSize * 16);
+		// ctx.paramsContent.fill(0, shader.paramsSize * 16, 0xDD);
+		// ctx.texturesCount = shader.texturesCount;
+		// ctx.bufferCount = shader.bufferCount;
+		// ctx.globals = dx.Driver.createBuffer(shader.globalsSize * 16, Dynamic, ConstantBuffer, CpuWrite, None, 0, null);
+		// ctx.params = dx.Driver.createBuffer(shader.paramsSize * 16, Dynamic, ConstantBuffer, CpuWrite, None, 0, null);
+		// ctx.samplersMap = [];
+
+		// var samplers = new hxsl.HlslOut.Samplers();
+		// for( v in shader.data.vars )
+		// 	samplers.make(v, ctx.samplersMap);
+
+		// #if debug
+		// ctx.debugSource = shader.code;
+		// #end
+		// return { s : ctx, bytes : bytes };
 	}
 
 	override public function selectMaterial( pass : h3d.mat.Pass ) {
@@ -210,7 +293,7 @@ class MetalDriver extends Driver {
 		case S3TC(n):
 			switch( n ) {
 			case 1: MTLPixelFormatBC1_RGBA;
-			default: throw "assert";
+			default: throw 'unsupported texture format ${t.format}';
 			}
 		default: throw "Unsupported texture format " + t.format;
 		}
@@ -255,7 +338,7 @@ class MetalDriver extends Driver {
 	}
 
 	override public function allocVertexes( m : ManagedBuffer ) : VertexBuffer {
-		if( m.size * m.stride == 0 ) throw "assert";
+		if( m.size * m.stride == 0 ) throw "size * stride can not be 0";
 		return { b: driver.createVertexBuffer( m.size * m.stride * 4 ), stride: m.stride };
 	}
 
@@ -319,7 +402,20 @@ class MetalDriver extends Driver {
 	}
 
 	override public function uploadTexturePixels( t : h3d.mat.Texture, pixels : hxd.Pixels, mipLevel : Int, side : Int ) {
-		throw "Not implemented";
+		var region : metal.MTLRegion = {origin: {x: 0, y: 0, z: 0}, size: {width: t.width, height: t.height, depth: 1}};
+
+		if( t.format.match(S3TC(_)) ) {
+			throw "S3TC support not implemented";
+		} else {
+			if( t.flags.has(IsArray) )
+			{
+				throw "IsArray support not implemented";
+			}
+		}
+
+		var stride = @:privateAccess pixels.stride;
+		var bytes = (pixels.bytes:hl.Bytes).offset(pixels.offset);
+		t.t.replace(region, mipLevel, bytes, stride);
 	}
 
 	override public function readVertexBytes( v : VertexBuffer, startVertex : Int, vertexCount : Int, buf : haxe.io.Bytes, bufPos : Int ) {
