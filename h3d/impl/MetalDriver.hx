@@ -3,16 +3,30 @@ import h3d.impl.Driver;
 
 #if hlmetal
 
-private class CompiledShader {
-	public function new() {
+@:structInit
+class FuncAndLib {
+	var func: metal.MTLFunction;
+	var lib: metal.MTLLibrary;
+}
 
+private class CompiledShader {
+	var vertex : FuncAndLib;
+	var fragment : FuncAndLib;
+	var state : metal.MTLRenderPipelineState;
+
+	public function new(
+		vertex: FuncAndLib,
+		fragment: FuncAndLib,
+		state : metal.MTLRenderPipelineState ) {
+
+		this.vertex = vertex;
+		this.fragment = fragment;
+		this.state = state;
 	}
 }
 
 class MetalDriver extends Driver {
 
-	var window: metal.Window;
-	var driver: metal.Driver;
 	var debug : Bool;
 
 	var frame : Int;
@@ -21,12 +35,41 @@ class MetalDriver extends Driver {
 	var bufferHeight : Int;
 
 	var shaders : Map<Int,CompiledShader>;
+	var currentShader : CompiledShader;
+
+	// Metal (global)
+	var device: metal.MTLDevice;
+	var renderPassDescriptor: metal.MTLRenderPassDescriptor;
+	var window: metal.Window;
+	var driver: metal.Driver;
+	var commandQueue : metal.MTLCommandQueue;
+
+	// Metal (frame)
+	var frameCommandBuffer: metal.MTLCommandBuffer;
 
 	// public var backBufferFormat : metal.Format = R8G8B8A8_UNORM;
 
 	public function new(window: metal.Window) {
 		this.window = window;
+
 		this.driver = new metal.Driver(window);
+
+		//
+		this.device = this.driver.device;
+		this.commandQueue = this.device.newCommandQueue();
+
+		this.renderPassDescriptor = new metal.MTLRenderPassDescriptor();
+		this.renderPassDescriptor.colorAttachments.push(
+			{
+				loadAction: MTLLoadActionClear,
+				storeAction: MTLStoreActionStore,
+				clearColor: {
+					red: 0,
+					green: 1,
+					blue: 1,
+					alpha: 1
+				}
+			});
 
 		reset();
 	}
@@ -88,6 +131,8 @@ class MetalDriver extends Driver {
 
 	override public function begin( frame : Int ) {
 		this.frame = frame;
+
+		this.frameCommandBuffer = this.commandQueue.commandBuffer();
 	}
 
 	override public function generateMipMaps( texture : h3d.mat.Texture ) {
@@ -126,15 +171,44 @@ class MetalDriver extends Driver {
 	override public function selectShader( shader : hxsl.RuntimeShader ): Bool {
 		var s = shaders.get(shader.id);
 		if( s == null ) {
-			s = new CompiledShader();
 			trace('Compiling ${shader.vertex.data.name}');
 			var vertex = compileShader(shader.vertex);
 			var fragment = compileShader(shader.fragment);
+
+			var stateDesc : metal.MTLRenderPipelineDescriptor = {
+				vertexFunction: @:privateAccess vertex.func,
+				fragmentFunction: @:privateAccess fragment.func
+			};
+
+			var state = driver.device.newRenderPipelineStateWithDescriptor(stateDesc);
+
+			s = new CompiledShader(vertex, fragment, state);
+			shaders.set(shader.id, s);
 		}
-		throw 'Not implemented';
+
+		if (currentShader == s) return false;
+		setShader(s);
+		return true;
 	}
 
-	function compileShader( shader : hxsl.RuntimeShader.RuntimeShaderData, compileOnly = false ): metal.MTLLibrary {
+	function setShader( s : CompiledShader ) {
+		currentShader = s;
+
+		// MTLRenderPipelineDescriptor pipelineDesc = [MTLRenderPipelineDescriptor new];
+        // pipelineDesc.sampleCount = self.sampleCount;
+        // pipelineDesc.vertexFunction = vertFunc;
+        // pipelineDesc.fragmentFunction = fragFunc;
+        // pipelineDesc.vertexDescriptor = vertDesc;
+        // pipelineDesc.colorAttachments[0].pixelFormat = self.metalView.colorPixelFormat;
+        // pipelineDesc.depthAttachmentPixelFormat = self.metalView.depthStencilPixelFormat;
+        // pipelineDesc.stencilAttachmentPixelFormat = self.metalView.depthStencilPixelFormat;
+
+        // _pipelineState = [self.device newRenderPipelineStateWithDescriptor:pipelineDesc error:&error];
+
+		// throw "Not impl";
+	}
+
+	function compileShader( shader : hxsl.RuntimeShader.RuntimeShaderData, compileOnly = false ): FuncAndLib {
 		var h = new hxsl.MetalOut();
 		var dxx = new hxsl.HlslOut();
 		var g = new hxsl.GlslOut();
@@ -147,7 +221,10 @@ class MetalDriver extends Driver {
 			shader.data.funs = null;
 		}
 
-		return driver.device.newLibraryFromSource(shader.code);
+		var lib: metal.MTLLibrary = driver.device.newLibraryFromSource(shader.code);
+		var func: metal.MTLFunction = lib.newFunction(shader.vertex ? "vert_main" : "frag_main");
+		trace('Got $func from $lib');
+		return {func: func, lib: lib};
 		// var bytes = getBinaryPayload(shader.code);
 		// if( bytes == null ) {
 		// 	bytes = try dx.Driver.compileShader(shader.code, "", "main", (shader.vertex?"vs_":"ps_") + shaderVersion, OptimizationLevel3) catch( err : String ) {
@@ -315,7 +392,7 @@ class MetalDriver extends Driver {
 
 		var mipmapped = t.flags.has(MipMapped);
 
-		var textureDesc = new metal.Proxy_MTLTextureDescriptor();
+		var textureDesc = new metal.MTLTextureDescriptor();
 		textureDesc.width = t.width;
 		textureDesc.height = t.height;
 		textureDesc.pixelFormat = getTextureFormat(t);
