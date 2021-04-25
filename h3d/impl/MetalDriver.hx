@@ -2,16 +2,81 @@ package h3d.impl;
 import h3d.impl.Driver;
 
 #if hlmetal
+@:allow(h3d.impl.FuncAndLib)
+@:structInit
+class BufferAndSize {
+	var buffer: metal.MTLBuffer;
+	var size: Int;
+}
 
 @:structInit
 class FuncAndLib {
 	var func: metal.MTLFunction;
 	var lib: metal.MTLLibrary;
+
+	// buffers
+	var globals : BufferAndSize;
+	var params : BufferAndSize;
+	var textures: haxe.ds.Vector<metal.MTLTexture>;
+	var buffers: haxe.ds.Vector<metal.MTLBuffer>;
+
+	public function uploadBuffer(driver: MetalDriver, buffers: h3d.shader.Buffers.ShaderBuffers, which: h3d.shader.Buffers.BufferKind)
+	{
+		trace('Uploading buffer ${which} for ${func}');
+
+		switch( which ) {
+			case Globals:
+				var data = hl.Bytes.getArray(buffers.globals.toData());
+				var byteSize = this.globals.size << 4;
+
+				trace('contentsMemcpy for globals');
+				this.globals.buffer.contentsMemcpy(
+					data,
+					0,
+					byteSize);
+			case Params:
+				var data = hl.Bytes.getArray(buffers.params.toData());
+				var byteSize = this.params.size << 4;
+
+				trace('contentsMemcpy for params');
+				this.params.buffer.contentsMemcpy(
+					data,
+					0,
+					byteSize);
+			case Buffers:
+				// var data = hl.Bytes.getArray(buffers.params.toData());
+				// var byteSize = this.params.size << 4;
+				if (buffers.buffers != null) {
+					var bcount = buffers.buffers.length;
+					for( i in 0...bcount ) {
+						throw ('Uploading buffer $i');
+					}
+				}
+
+				// trace('contentsMemcpy for params');
+				// this.params.buffer.contentsMemcpy(
+				// 	data,
+				// 	0,
+				// 	byteSize);
+			case Textures:
+				var tcount = buffers.tex.length;
+				trace('Uploading $tcount textures');
+				if (tcount != this.textures.length) {
+					throw 'Trying to allocate $tcount textures but shader expects ${this.textures.length}';
+				}
+				for( i in 0...tcount ) {
+					var heapsTex = buffers.tex[i];
+					var metalTex = driver.allocTexture(heapsTex);
+					trace('Allocated texture $metalTex');
+					this.textures[i] = metalTex;
+				}
+		}
+	}
 }
 
 private class CompiledShader {
-	var vertex : FuncAndLib;
-	var fragment : FuncAndLib;
+	public var vertex(default, null) : FuncAndLib;
+	public var fragment(default, null) : FuncAndLib;
 	var state : metal.MTLRenderPipelineState;
 
 	public function new(
@@ -224,7 +289,41 @@ class MetalDriver extends Driver {
 		var lib: metal.MTLLibrary = driver.device.newLibraryFromSource(shader.code);
 		var func: metal.MTLFunction = lib.newFunction(shader.vertex ? "vert_main" : "frag_main");
 		trace('Got $func from $lib');
-		return {func: func, lib: lib};
+
+		// gl.uniform4fv(
+		// 	s.globals,
+		// 	streamData(
+		// 		hl.Bytes.getArray(
+		// 			buf.globals.toData()),
+		// 		0,
+		// 		s.shader.globalsSize * 16
+		// 	),
+		// 	0,
+		// 	s.shader.globalsSize * 4);
+		trace('Creating globals buffer with: ${shader.globalsSize}');
+		var globalBuf = device.newBufferWithLengthOptions(
+				shader.globalsSize * 4,
+				metal.MTLResourceOptions.MTLResourceStorageModeShared);
+
+		trace('Creating param buffer with: ${shader.paramsSize}');
+		var paramBuf = device.newBufferWithLengthOptions(
+				shader.paramsSize * 4,
+				metal.MTLResourceOptions.MTLResourceStorageModeShared);
+
+		trace('Creating textures with ${shader.texturesCount} textures');
+		var textures = new haxe.ds.Vector<metal.MTLTexture>(shader.texturesCount);
+
+		trace('Creating ${shader.bufferCount} buffers');
+		var buffers = new haxe.ds.Vector<metal.MTLBuffer>(shader.bufferCount);
+
+		return {
+			func: func,
+			lib: lib,
+			globals: {buffer: globalBuf, size: shader.globalsSize},
+			params: {buffer: paramBuf, size: shader.paramsSize},
+			buffers: buffers,
+			textures: textures
+		};
 		// var bytes = getBinaryPayload(shader.code);
 		// if( bytes == null ) {
 		// 	bytes = try dx.Driver.compileShader(shader.code, "", "main", (shader.vertex?"vs_":"ps_") + shaderVersion, OptimizationLevel3) catch( err : String ) {
@@ -268,11 +367,18 @@ class MetalDriver extends Driver {
 	}
 
 	override public function selectMaterial( pass : h3d.mat.Pass ) {
-		throw "Not implemented";
+		trace("selectMaterial not implemented");
 	}
 
 	override public function uploadShaderBuffers( buffers : h3d.shader.Buffers, which : h3d.shader.Buffers.BufferKind ) {
-		throw "Not implemented";
+		if (currentShader == null) {
+			throw "Can't upload shader buffers without a current shader";
+		}
+
+		currentShader.vertex.uploadBuffer(this, buffers.vertex, which);
+		currentShader.fragment.uploadBuffer(this, buffers.fragment, which);
+		// @:privateAccess _uploadBuffer(currentShader.vertex, buffers.vertex, which);
+		// @:privateAccess _uploadBuffer(currentShader.fragment, buffers.fragment, which);
 	}
 
 	override public function getShaderInputNames() : InputNames {
@@ -385,7 +491,7 @@ class MetalDriver extends Driver {
 		// _raiseNotImplIf(t.flags, NoAlloc);
 		_raiseNotImplIf(t.flags, Dynamic);
 		_raiseNotImplIf(t.flags, AlphaPremultiplied);
-		_raiseNotImplIf(t.flags, WasCleared);
+		// _raiseNotImplIf(t.flags, WasCleared);
 		_raiseNotImplIf(t.flags, Loading);
 		_raiseNotImplIf(t.flags, Serialize);
 		_raiseNotImplIf(t.flags, IsArray);
@@ -396,6 +502,9 @@ class MetalDriver extends Driver {
 		textureDesc.width = t.width;
 		textureDesc.height = t.height;
 		textureDesc.pixelFormat = getTextureFormat(t);
+
+		// TODO: is this ok?
+		t.flags.unset(WasCleared);
 
 		trace('allocTexture:
 	mips ${t.mipLevels}
@@ -444,11 +553,9 @@ class MetalDriver extends Driver {
 		var bits = i.is32 ? 2 : 1;
 		var data = hl.Bytes.getArray(buf.getNative());
 
-
 		trace('uploading buffer si $startIndice ic $indiceCount bp $bufPos');
 
-		driver.updateBuffer(
-			i.b,
+		i.b.contentsMemcpy(
 			hl.Bytes.getArray(buf.getNative()).offset(bufPos << bits),
 			startIndice << bits,
 			indiceCount << bits);
@@ -463,8 +570,7 @@ class MetalDriver extends Driver {
 	{
 		var data = hl.Bytes.getArray(buf.getNative()).offset(bufPos<<2);
 
-		driver.updateBuffer(
-			v.b,
+		v.b.contentsMemcpy(
 			data,
 			startVertex * v.stride << 2,
 			vertexCount * v.stride << 2);
