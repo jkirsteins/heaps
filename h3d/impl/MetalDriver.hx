@@ -158,7 +158,8 @@ class MetalDriver extends Driver {
 
 	override function present() {
 		// trace("[MetalDriver#present]");
-		@:privateAccess hxd.Window.inst.window.present();
+		// throw 'presenting?';
+		// @:privateAccess hxd.Window.inst.window.present();
 	}
 
 	override function init( onCreate : Bool -> Void, forceSoftware = false ) {
@@ -214,11 +215,11 @@ class MetalDriver extends Driver {
 		}
 
 		this.renderPassDescriptor.colorAttachments[0].texture = this.frameCurrentDrawable.getTexture();
-
-		// metal.MTLCommandBuffer.nativeTest(exts);
-
 		this.frameRenderEncoder = this.frameCommandBuffer.renderCommandEncoderWithDescriptor(this.renderPassDescriptor);
-		throw "Sup?";
+
+		if (this.currentShader != null) {
+			this.frameRenderEncoder.setRenderPipelineState(@:privateAccess currentShader.state);
+		}
 	}
 
 	override public function generateMipMaps( texture : h3d.mat.Texture ) {
@@ -279,6 +280,10 @@ class MetalDriver extends Driver {
 
 	function setShader( s : CompiledShader ) {
 		currentShader = s;
+
+		if (this.frameRenderEncoder != null) {
+			this.frameRenderEncoder.setRenderPipelineState(@:privateAccess currentShader.state);
+		}
 
 		// MTLRenderPipelineDescriptor pipelineDesc = [MTLRenderPipelineDescriptor new];
         // pipelineDesc.sampleCount = self.sampleCount;
@@ -407,7 +412,17 @@ class MetalDriver extends Driver {
 	}
 
 	override public function selectBuffer( buffer : Buffer ) {
-		throw "Not implemented";
+		if (frameRenderEncoder == null) {
+			throw "frameRenderEncoder is not set";
+		}
+
+		@:privateAccess var vbuf: VertexBuffer = buffer.buffer.vbuf;
+
+		this.frameRenderEncoder.setVertexBufferWithOffsetAtIndex(
+			vbuf.b,
+			0,
+			buffer.buffer.size
+		);
 	}
 
 	override public function selectMultiBuffers( buffers : Buffer.BufferOffset ) {
@@ -415,7 +430,16 @@ class MetalDriver extends Driver {
 	}
 
 	override public function draw( ibuf : IndexBuffer, startIndex : Int, ntriangles : Int ) {
-		throw "Not implemented";
+
+		this.frameRenderEncoder.drawIndexedPrimitives(
+			MTLPrimitiveTypeTriangle,
+			3,
+			ibuf.is32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16,
+			ibuf.b,
+			ibuf.is32 ? startIndex * 4 : startIndex * 2,
+			ntriangles,
+			0,
+			0);
 	}
 
 	override public function drawInstanced( ibuf : IndexBuffer, commands : h3d.impl.InstanceBuffer ) {
@@ -467,7 +491,15 @@ class MetalDriver extends Driver {
 	}
 
 	override public function end() {
-		throw "Not implemented";
+		if (this.frameRenderEncoder == null) {
+			throw "Can not end frame without an encoder";
+		}
+
+		this.frameRenderEncoder.endEncoding();
+		this.frameCommandBuffer.presentDrawable(this.frameCurrentDrawable);
+		this.frameCommandBuffer.commit();
+
+		trace("Not implemented (cleanup resources?)");
 	}
 
 	override public function setDebug(d) {
