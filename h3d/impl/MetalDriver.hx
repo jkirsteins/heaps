@@ -111,6 +111,8 @@ class MetalDriver extends Driver {
 
 	// Metal (frame)
 	var frameCommandBuffer: metal.MTLCommandBuffer;
+	var frameCurrentDrawable: metal.CAMetalDrawable;
+	var frameRenderEncoder: metal.MTLRenderCommandEncoder;
 
 	// public var backBufferFormat : metal.Format = R8G8B8A8_UNORM;
 
@@ -124,17 +126,20 @@ class MetalDriver extends Driver {
 		this.commandQueue = this.device.newCommandQueue();
 
 		this.renderPassDescriptor = new metal.MTLRenderPassDescriptor();
-		this.renderPassDescriptor.colorAttachments.push(
-			{
-				loadAction: MTLLoadActionClear,
-				storeAction: MTLStoreActionStore,
-				clearColor: {
-					red: 0,
-					green: 1,
-					blue: 1,
-					alpha: 1
-				}
-			});
+
+		var descriptor: metal.MTLRenderPassColorAttachmentDescriptor = {
+			loadAction: MTLLoadActionClear,
+			storeAction: MTLStoreActionStore,
+			texture: null,
+			clearColor: {
+				red: 0,
+				green: 1,
+				blue: 1,
+				alpha: 1
+			}
+		};
+		this.renderPassDescriptor.colorAttachments = new hl.NativeArray<metal.MTLRenderPassColorAttachmentDescriptor>(1);
+		this.renderPassDescriptor.colorAttachments[0] = descriptor;
 
 		reset();
 	}
@@ -198,6 +203,22 @@ class MetalDriver extends Driver {
 		this.frame = frame;
 
 		this.frameCommandBuffer = this.commandQueue.commandBuffer();
+		this.frameCurrentDrawable = this.driver.getCurrentDrawable();
+
+		trace('Got frame command buffer ${this.frameCommandBuffer}');
+		trace('Got frame drawable ${this.frameCurrentDrawable}');
+		if (this.frameCurrentDrawable == null) {
+			trace('No drawable, skip rendering this frame');
+			this.frameCommandBuffer = null;
+			return;
+		}
+
+		this.renderPassDescriptor.colorAttachments[0].texture = this.frameCurrentDrawable.getTexture();
+
+		// metal.MTLCommandBuffer.nativeTest(exts);
+
+		this.frameRenderEncoder = this.frameCommandBuffer.renderCommandEncoderWithDescriptor(this.renderPassDescriptor);
+		throw "Sup?";
 	}
 
 	override public function generateMipMaps( texture : h3d.mat.Texture ) {
