@@ -169,6 +169,8 @@ class MetalOut {
 			add("float4x3");
 		case TSampler2D:
 			add("texture2d<float>");
+		case TSampler2DArray:
+			add("texture2d_array<float>");
 		case TStruct(vl):
 			add("struct { ");
 			for( v in vl ) {
@@ -206,12 +208,33 @@ class MetalOut {
 
 	function addVar( v : TVar ) {
 		switch( v.type ) {
+		// case TArray(TSampler2D, size):
+		// 	var old = v.type;
+		// 	v.type = TSampler2D;
+		// 	addVar(v);
+		// 	v.type = old;
+		// 	addArraySize(size);
+		// 	add('Yo${TSampler2D}');
 		case TArray(t, size), TBuffer(t,size):
+			add('array<');
 			var old = v.type;
 			v.type = t;
-			addVar(v);
+			addType(v.type);
+			add(',');
+			switch( size ) {
+			case SVar(v): ident(v);
+			case SConst(n): add(n);
+			}
+			add('> ');
 			v.type = old;
-			addArraySize(size);
+			// addArraySize(size);
+			ident(v);
+			switch( t ) {
+				case TSampler2D:
+					add(' [[texture(0)]]');
+				default:
+
+			}
 		default:
 			addType(v.type);
 			add(" ");
@@ -308,6 +331,9 @@ class MetalOut {
             if (v.kind == Param) {
                 add('__in_uniforms.');
             }
+			if (v.kind == Global) {
+				add('__in_globals.');
+			}
             if (v.kind == Output || ( v.kind == Var && isVertex )) {
                 add('__out.');
             }
@@ -694,12 +720,26 @@ class MetalOut {
 		for( f in s.funs )
 			collectGlobals(foundGlobals, f.expr);
 
+		// params
         add("struct Uniforms {\n");
         for( v in s.vars ) {
-            if( v.kind == Param )
-				declVar(true, v);
+            if( v.kind == Param ) {
+				add("\t");
+				addVar(v);
+				add(";\n");
+			}
         }
         add("};\n");
+
+		// globals
+		add("struct Globals {\n");
+		for( v in s.vars )
+			if( v.kind == Global ) {
+				add("\t");
+				addVar(v);
+				add(";\n");
+			}
+		add("};\n\n");
 
 		add("struct s_input {\n");
 		if( !isVertex )
@@ -730,17 +770,6 @@ class MetalOut {
 				declVar(false, v);
 		add("};\n\n");
 	}
-
-	// function initGlobals( s : ShaderData ) {
-	// 	add("cbuffer _globals : register(b0) {\n");
-	// 	for( v in s.vars )
-	// 		if( v.kind == Global ) {
-	// 			add("\t");
-	// 			addVar(v);
-	// 			add(";\n");
-	// 		}
-	// 	add("};\n\n");
-	// }
 
 	// function initParams( s : ShaderData ) {
 	// 	var textures = [];
@@ -819,11 +848,12 @@ class MetalOut {
         }
 
 		add("(\n");
-        add("\tconst device s_input *__in [[buffer(0)]],\n");
         if( isVertex ) {
 			add("\tunsigned int __in_vid [[vertex_id]],\n");
         }
-        add("\tconstant Uniforms &__in_uniforms [[buffer(1)]]\n");
+        add("\tconst device s_input *__in [[buffer(0)]],\n");
+        add("\tconstant Uniforms &__in_uniforms [[buffer(1)]],\n");
+		add("\tconstant Globals &__in_globals [[buffer(2)]]\n");
         add(") {\n");
 
         if (isVertex) {
