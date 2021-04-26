@@ -1,5 +1,6 @@
 package hxd;
 
+import metal.NSApplication;
 #if hlsdl
 import sdl.Cursor;
 #elseif hldx
@@ -67,9 +68,13 @@ class System {
 		if( !sdl.Sdl.processEvents(@:privateAccess hxd.Window.inst.onEvent) )
 			return false;
 		#elseif hlmetal
+		trace('Processing events');
 		if( !metal.NSApplication.processEvents(@:privateAccess hxd.Window.inst.onEvent) ) {
+			trace("Processed events");
 			return false;
-		} 
+		} else {
+			trace("Failed processing events");
+		}
 		#end
 
 		// loop
@@ -112,6 +117,9 @@ class System {
 			height = Std.parseInt(p[1]);
 		}
 		timeoutTick();
+		#if hlmetal
+			metal.NSApplication.init();
+		#end
 		#if hlsdl
 			sdl.Sdl.init();
 			@:privateAccess Window.initChars();

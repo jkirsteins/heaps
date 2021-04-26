@@ -132,9 +132,10 @@ class MetalDriver extends Driver {
 			storeAction: MTLStoreActionStore,
 			texture: null,
 			clearColor: {
-				red: 0,
-				green: 1,
-				blue: 1,
+				// cauliflower blue: 80, 128, 191
+				red: 0.31,
+				green: 0.5,
+				blue: 0.75,
 				alpha: 1
 			}
 		};
@@ -202,6 +203,14 @@ class MetalDriver extends Driver {
 
 	override public function begin( frame : Int ) {
 		this.frame = frame;
+
+		if (this.frameRenderEncoder != null) {
+			throw 'Frame render command encoder already set. Did you not call end()?';
+		}
+
+		if (this.frameCommandBuffer != null) {
+			throw 'Frame command buffer already set. Did you not call end()?';
+		}
 
 		this.frameCommandBuffer = this.commandQueue.commandBuffer();
 		this.frameCurrentDrawable = this.driver.getCurrentDrawable();
@@ -495,11 +504,39 @@ class MetalDriver extends Driver {
 			throw "Can not end frame without an encoder";
 		}
 
+		if (this.frameCurrentDrawable == null) {
+			trace('No drawable. Skipping frame.');
+			return;
+		}
+
 		this.frameRenderEncoder.endEncoding();
+		trace('present drawable');
 		this.frameCommandBuffer.presentDrawable(this.frameCurrentDrawable);
+		this.window.macDraw();
+		trace('//present drawable');
 		this.frameCommandBuffer.commit();
 
-		trace("Not implemented (cleanup resources?)");
+		this._cleanupAfterFrame();
+	}
+
+	private function _cleanupAfterFrame() {
+		if (this.frameCommandBuffer == null) {
+			throw "Can't clean up command buffer";
+		}
+
+		if (this.frameRenderEncoder == null) {
+			throw "Can't clean up render encoder";
+		}
+
+		if (this.frameCurrentDrawable != null) {
+			this.frameCurrentDrawable = null;
+		}
+
+		this.frameCommandBuffer.release();
+		this.frameCommandBuffer = null;
+
+		this.frameRenderEncoder.release();
+		this.frameRenderEncoder = null;
 	}
 
 	override public function setDebug(d) {
