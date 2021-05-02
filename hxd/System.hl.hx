@@ -1,7 +1,8 @@
 package hxd;
 
+#if hlmetal
 import metal.NSApplication;
-#if hlsdl
+#elseif hlsdl
 import sdl.Cursor;
 #elseif hldx
 import dx.Cursor;

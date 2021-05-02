@@ -9,10 +9,20 @@ class BufferAndSize {
 	var size: Int;
 }
 
+@:enum abstract MetalBufferIndex(Int) to Int {
+	public var MetalBufferIndexVertices = 0;
+	public var MetalBufferIndexParams = 1;
+	public var MetalBufferIndexGlobals = 2;
+}
+
+
 @:structInit
 class FuncAndLib {
 	var func: metal.MTLFunction;
 	var lib: metal.MTLLibrary;
+
+	/** Is this struct holding a vertex fragment? **/
+	var vertex: Bool;
 
 	// buffers
 	var globals : BufferAndSize;
@@ -26,23 +36,55 @@ class FuncAndLib {
 
 		switch( which ) {
 			case Globals:
+				if (buffers.globals.length == 0) {
+					return;
+				}
+
+				if (this.globals == null) {
+					throw 'Received globals (size ${buffers.globals.length} but buffer is null';
+				}
+
 				var data = hl.Bytes.getArray(buffers.globals.toData());
 				var byteSize = this.globals.size << 4;
 
-				trace('contentsMemcpy for globals');
+				trace('contentsMemcpy for globals ${this.globals.buffer}');
 				this.globals.buffer.contentsMemcpy(
 					data,
 					0,
 					byteSize);
+
+				throw 'todo: set vertex/fragment globals';
 			case Params:
+				if (buffers.params.length == 0) {
+					return;
+				}
+
+				if (this.params == null) {
+					throw 'Received params (size ${buffers.params.length} but buffer is null';
+				}
+
 				var data = hl.Bytes.getArray(buffers.params.toData());
 				var byteSize = this.params.size << 4;
 
-				trace('contentsMemcpy for params');
+				// var mtlLen = this.params.buffer.getLength();
+				// throw 'Uploading params len: ${buffers.params.length}';
+
+				trace('contentsMemcpy for params ${this.params.buffer} byteSize ${byteSize}');
 				this.params.buffer.contentsMemcpy(
 					data,
 					0,
 					byteSize);
+
+				var fe = @:privateAccess driver.frameRenderEncoder;
+				if (fe == null) {
+					throw 'Can\'t upload buffer. No render command encoder available.';
+				}
+
+				if (this.vertex) {
+					fe.setVertexBufferWithOffsetAtIndex(this.params.buffer, 0, MetalBufferIndexParams);
+				} else {
+					throw 'todo: implement fragment params upload';
+				}
 			case Buffers:
 				// var data = hl.Bytes.getArray(buffers.params.toData());
 				// var byteSize = this.params.size << 4;
@@ -126,27 +168,15 @@ class MetalDriver extends Driver {
 		this.commandQueue = this.device.newCommandQueue();
 
 		this.renderPassDescriptor = new metal.MTLRenderPassDescriptor();
-
-		var descriptor: metal.MTLRenderPassColorAttachmentDescriptor = {
-			loadAction: MTLLoadActionClear,
-			storeAction: MTLStoreActionStore,
-			texture: null,
-			clearColor: {
-				// cauliflower blue: 80, 128, 191
-				red: 0.31,
-				green: 0.5,
-				blue: 0.75,
-				alpha: 1
-			}
-		};
 		this.renderPassDescriptor.colorAttachments = new hl.NativeArray<metal.MTLRenderPassColorAttachmentDescriptor>(1);
-		this.renderPassDescriptor.colorAttachments[0] = descriptor;
 
+		// initialize render pass descriptor values etc.
 		reset();
 	}
 
 	function reset() {
 		this.shaders = new Map();
+		clear(new h3d.Vector(0, 0, 0, 0), 1, 0);
 	}
 
 	override function logImpl(str:String) {
@@ -202,6 +232,8 @@ class MetalDriver extends Driver {
 	}
 
 	override public function begin( frame : Int ) {
+		trace('------------------------------------ BEGIN FRAME $frame ------------------------------------');
+
 		this.frame = frame;
 
 		if (this.frameRenderEncoder != null) {
@@ -223,6 +255,10 @@ class MetalDriver extends Driver {
 			return;
 		}
 
+		if (this.renderPassDescriptor.colorAttachments.length != 1) {
+			throw 'Expecting to have exactly 1 color attachment';
+		}
+
 		this.renderPassDescriptor.colorAttachments[0].texture = this.frameCurrentDrawable.getTexture();
 		this.frameRenderEncoder = this.frameCommandBuffer.renderCommandEncoderWithDescriptor(this.renderPassDescriptor);
 
@@ -240,10 +276,58 @@ class MetalDriver extends Driver {
 	}
 
 	override public function clear( ?color : h3d.Vector, ?depth : Float, ?stencil : Int ) {
+		if (this.renderPassDescriptor == null) {
+			throw 'render pass descriptor doesn\'t exist';
+		}
+
 		if (color != null) {
 			trace('Clearing ${color.r} ${color.g} ${color.b} ${color.a}');
+
+			if (this.renderPassDescriptor.colorAttachments.length != 1) {
+				throw 'render pass color attachment length is not 1';
+			}
+
+			var descriptor: metal.MTLRenderPassColorAttachmentDescriptor = {
+				loadAction: MTLLoadActionClear,
+				storeAction: MTLStoreActionStore,
+				texture: null,
+				clearColor: {
+					red: color.r,
+					green: color.g,
+					blue: color.b,
+					alpha: color.a
+				}
+			};
+			this.renderPassDescriptor.colorAttachments[0] = descriptor;
+		} else {
+			throw 'should colorAttachment be removed?';
 		}
-		trace('IGNORING SETTING CLEAR COLOR');
+
+		if (depth != null) {
+			trace('Clearing depth $depth');
+
+			this.renderPassDescriptor.depthAttachment = {
+				loadAction: MTLLoadActionClear,
+				storeAction: MTLStoreActionStore,
+				texture: null,
+				clearDepth: depth
+			};
+		} else {
+			throw 'should depthAttachment be removed?';
+		}
+
+		if (stencil != null) {
+			trace('clear stencil $stencil');
+
+			this.renderPassDescriptor.stencilAttachment = {
+				loadAction: MTLLoadActionClear,
+				storeAction: MTLStoreActionStore,
+				texture: null,
+				clearStencil: stencil
+			};
+		} else {
+			throw 'should stencilAttachment be removed?';
+		}
 	}
 
 	override public function captureRenderBuffer( pixels : hxd.Pixels ) {
@@ -259,9 +343,9 @@ class MetalDriver extends Driver {
 	}
 
 	override public function resize( width : Int, height : Int ) {
-		bufferWidth = width;
-		bufferHeight = height;
-		driver.resizeViewport(width, height);
+		// bufferWidth = width;
+		// bufferHeight = height;
+		// driver.resizeViewport(width, height);
 	}
 
 	override public function selectShader( shader : hxsl.RuntimeShader ): Bool {
@@ -314,8 +398,8 @@ class MetalDriver extends Driver {
 		var g = new hxsl.GlslOut();
 
 		if( shader.code == null ){
-			trace('HlslOut: ${dxx.run(shader.data)}');
-			trace('GlslOut: ${g.run(shader.data)}');
+			// trace('HlslOut: ${dxx.run(shader.data)}');
+			// trace('GlslOut: ${g.run(shader.data)}');
 			shader.code = h.run(shader.data);
 			trace('MetalOut: ${shader.code}');
 			shader.data.funs = null;
@@ -324,6 +408,7 @@ class MetalDriver extends Driver {
 		var lib: metal.MTLLibrary = driver.device.newLibraryFromSource(shader.code);
 		var func: metal.MTLFunction = lib.newFunction(shader.vertex ? "vert_main" : "frag_main");
 		trace('Got $func from $lib');
+
 
 		// gl.uniform4fv(
 		// 	s.globals,
@@ -335,15 +420,22 @@ class MetalDriver extends Driver {
 		// 	),
 		// 	0,
 		// 	s.shader.globalsSize * 4);
-		trace('Creating globals buffer with: ${shader.globalsSize}');
-		var globalBuf = device.newBufferWithLengthOptions(
-				shader.globalsSize * 4,
+		var globalBuf: metal.MTLBuffer = null;
+		if (shader.globalsSize > 0) {
+			trace('Creating globals buffer with: ${shader.globalsSize}');
+			globalBuf = device.newBufferWithLengthOptions(
+				shader.globalsSize * 16,
 				metal.MTLResourceOptions.MTLResourceStorageModeShared);
+		}
 
-		trace('Creating param buffer with: ${shader.paramsSize}');
-		var paramBuf = device.newBufferWithLengthOptions(
-				shader.paramsSize * 4,
+		var paramBuf: metal.MTLBuffer = null;
+		if (shader.paramsSize > 0) {
+			trace('Creating param buffer with: ${shader.paramsSize}');
+			paramBuf = device.newBufferWithLengthOptions(
+				shader.paramsSize * 16, // each value is float4 -> 16 bytes
 				metal.MTLResourceOptions.MTLResourceStorageModeShared);
+			// throw 'woop';
+		}
 
 		trace('Creating textures with ${shader.texturesCount} textures');
 		var textures = new haxe.ds.Vector<metal.MTLTexture>(shader.texturesCount);
@@ -354,6 +446,7 @@ class MetalDriver extends Driver {
 		return {
 			func: func,
 			lib: lib,
+			vertex: shader.vertex,
 			globals: {buffer: globalBuf, size: shader.globalsSize},
 			params: {buffer: paramBuf, size: shader.paramsSize},
 			buffers: buffers,
@@ -427,10 +520,21 @@ class MetalDriver extends Driver {
 
 		@:privateAccess var vbuf: VertexBuffer = buffer.buffer.vbuf;
 
+		var vbufSize = vbuf.b.getLength();
+
+		var expectedSize = buffer.vertices * vbuf.stride * 4;
+		if (expectedSize != vbufSize) {
+			throw 'Expected size ($expectedSize) does not match buffer size ($vbufSize)';
+		}
+
+		if (buffer.position != 0) {
+			throw 'Position is ${buffer.position}. Should this be offset?';
+		}
+
 		this.frameRenderEncoder.setVertexBufferWithOffsetAtIndex(
 			vbuf.b,
-			0,
-			buffer.buffer.size
+			buffer.position,	// no offset
+			0					// hardcoded position in the shader
 		);
 	}
 
@@ -596,18 +700,10 @@ class MetalDriver extends Driver {
 		// TODO: is this ok?
 		t.flags.unset(WasCleared);
 
-		trace('allocTexture:
-	mips ${t.mipLevels}
-	width ${textureDesc.width}
-	height ${textureDesc.height}
-	pxfmt ${textureDesc.pixelFormat}
-		');
-
 		return driver.createTexture(textureDesc);
 	}
 
 	override public function allocIndexes( count : Int, is32 : Bool ) : IndexBuffer {
-		trace('Allocate indexes $count $is32');
 		var size = is32 ? 4 : 2;
 
 		return { b: driver.createIndexBuffer( count * size ), is32: is32 };
@@ -615,10 +711,11 @@ class MetalDriver extends Driver {
 
 	override public function allocVertexes( m : ManagedBuffer ) : VertexBuffer {
 		if( m.size * m.stride == 0 ) throw "size * stride can not be 0";
+		trace('allocVertexes ${m.size} ${m.stride} 4');
 		return { b: driver.createVertexBuffer( m.size * m.stride * 4 ), stride: m.stride };
 	}
 
-	override public function allocInstanceBuffer( b : h3d.impl.InstanceBuffer, bytes : haxe.io.Bytes ) {
+override public function allocInstanceBuffer( b : h3d.impl.InstanceBuffer, bytes : haxe.io.Bytes ) {
 		throw "Not implemented";
 	}
 

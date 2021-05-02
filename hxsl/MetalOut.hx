@@ -723,7 +723,7 @@ class MetalOut {
 		// params
         add("struct Uniforms {\n");
         for( v in s.vars ) {
-            if( v.kind == Param ) {
+			if( v.kind == Param ) {
 				add("\t");
 				addVar(v);
 				add(";\n");
@@ -840,6 +840,23 @@ class MetalOut {
 
 			// varAccess.set(v.id, prefix);
 		}
+
+		// tmp
+		if (isVertex) {
+			// add('vertex float4 vert_main(\n');
+			// add('const device s_input* vertex_array [[ buffer(0) ]],\n');
+			// add('unsigned int vid [[ vertex_id ]]) {\n');
+			// add('return float4(vertex_array[vid].position, 1.0);\n');
+			// add('}\n');
+			// return;
+		} else {
+			add('fragment half4 frag_main() {\n');
+			add('return half4(1.0);\n');
+			add('}\n');
+			return;
+		}
+		// end tmp
+
 
         if (isVertex) {
             add("vertex VertOutput vert_main");
