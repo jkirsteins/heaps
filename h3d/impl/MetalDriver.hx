@@ -34,6 +34,11 @@ class FuncAndLib {
 	{
 		trace('Uploading buffer ${which} for ${func}');
 
+		var fe = @:privateAccess driver.frameRenderEncoder;
+		if (fe == null) {
+			throw 'Can\'t upload buffer. No render command encoder available.';
+		}
+
 		switch( which ) {
 			case Globals:
 				if (buffers.globals.length == 0) {
@@ -75,11 +80,6 @@ class FuncAndLib {
 					0,
 					byteSize);
 
-				var fe = @:privateAccess driver.frameRenderEncoder;
-				if (fe == null) {
-					throw 'Can\'t upload buffer. No render command encoder available.';
-				}
-
 				if (this.vertex) {
 					fe.setVertexBufferWithOffsetAtIndex(this.params.buffer, 0, MetalBufferIndexParams);
 				} else {
@@ -108,9 +108,15 @@ class FuncAndLib {
 				}
 				for( i in 0...tcount ) {
 					var heapsTex = buffers.tex[i];
-					var metalTex = driver.allocTexture(heapsTex);
-					trace('Allocated texture $metalTex');
-					this.textures[i] = metalTex;
+					if (this.textures[i] == null) {
+						this.textures[i] = heapsTex.t;
+					}
+
+					if (vertex) {
+						throw 'texture uploading for vertex functions not implemented';
+					} else {
+						fe.setFragmentTextureAtIndex(this.textures[i], i);
+					}
 				}
 		}
 	}
@@ -138,8 +144,8 @@ class MetalDriver extends Driver {
 
 	var frame : Int;
 
-	var bufferWidth : Int;
-	var bufferHeight : Int;
+	var bufferWidthInPts : Int;
+	var bufferHeightInPts : Int;
 
 	var shaders : Map<Int,CompiledShader>;
 	var currentShader : CompiledShader;
@@ -265,6 +271,16 @@ class MetalDriver extends Driver {
 		if (this.currentShader != null) {
 			this.frameRenderEncoder.setRenderPipelineState(@:privateAccess currentShader.state);
 		}
+
+		var scale = this.driver.getContentsScale();
+		var vp: metal.MTLViewport = {
+			originX: 0.0,
+			originY: 0.0,
+			width: this.bufferWidthInPts * scale,
+			height: this.bufferHeightInPts * scale,
+			znear: -1.0,
+			zfar: 1.0};
+		this.frameRenderEncoder.setViewport(vp);
 	}
 
 	override public function generateMipMaps( texture : h3d.mat.Texture ) {
@@ -343,9 +359,12 @@ class MetalDriver extends Driver {
 	}
 
 	override public function resize( width : Int, height : Int ) {
-		// bufferWidth = width;
-		// bufferHeight = height;
-		// driver.resizeViewport(width, height);
+		bufferWidthInPts = width;
+		bufferHeightInPts = height;
+
+		@:privateAccess if( defaultDepth != null ) {
+			throw 'not implemented: resizing needs to update depth buffer';
+		}
 	}
 
 	override public function selectShader( shader : hxsl.RuntimeShader ): Bool {
@@ -402,7 +421,13 @@ class MetalDriver extends Driver {
 			// trace('GlslOut: ${g.run(shader.data)}');
 			shader.code = h.run(shader.data);
 			trace('MetalOut: ${shader.code}');
+			// if (!shader.vertex)
+			// 	throw 'stop';
 			shader.data.funs = null;
+		}
+
+		if (shader.vertex) {
+			// throw 'done';
 		}
 
 		var lib: metal.MTLLibrary = driver.device.newLibraryFromSource(shader.code);
@@ -495,6 +520,7 @@ class MetalDriver extends Driver {
 	}
 
 	override public function selectMaterial( pass : h3d.mat.Pass ) {
+		// bits: 263172
 		trace("selectMaterial not implemented");
 	}
 
@@ -546,7 +572,7 @@ class MetalDriver extends Driver {
 
 		this.frameRenderEncoder.drawIndexedPrimitives(
 			MTLPrimitiveTypeTriangle,
-			3,
+			3 * ntriangles, // documentation says indexes-per-instance, but it seems it is actually total indexes
 			ibuf.is32 ? MTLIndexTypeUInt32 : MTLIndexTypeUInt16,
 			ibuf.b,
 			ibuf.is32 ? startIndex * 4 : startIndex * 2,
@@ -596,8 +622,8 @@ class MetalDriver extends Driver {
 			return defaultDepth;
 		defaultDepth = new h3d.mat.DepthBuffer(0, 0);
 		@:privateAccess {
-			defaultDepth.width = this.bufferWidth;
-			defaultDepth.height = this.bufferHeight;
+			defaultDepth.width = this.bufferWidthInPts;
+			defaultDepth.height = this.bufferHeightInPts;
 			defaultDepth.b = allocDepthBuffer(defaultDepth);
 		}
 		return defaultDepth;
@@ -700,6 +726,7 @@ class MetalDriver extends Driver {
 		// TODO: is this ok?
 		t.flags.unset(WasCleared);
 
+		// mipmapped false?
 		return driver.createTexture(textureDesc);
 	}
 
@@ -786,6 +813,7 @@ override public function allocInstanceBuffer( b : h3d.impl.InstanceBuffer, bytes
 		var stride = @:privateAccess pixels.stride;
 		var bytes = (pixels.bytes:hl.Bytes).offset(pixels.offset);
 		t.t.replace(region, mipLevel, bytes, stride);
+		t.t.debugSave("/Users/janiskirsteins/Downloads/_debug_mtltexture.png");
 	}
 
 	override public function readVertexBytes( v : VertexBuffer, startVertex : Int, vertexCount : Int, buf : haxe.io.Bytes, bufPos : Int ) {

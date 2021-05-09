@@ -253,6 +253,7 @@ class Texture {
 		alloc();
 		if( width == 0 || height == 0 ) return;
 		if( #if (usegl || hlsdl || js) true #else flags.has(Target) #end && (width != 1 || height != 1) ) {
+			throw 'nop1';
 			var engine = h3d.Engine.getCurrent();
 			color |= Std.int(hxd.Math.clamp(alpha)*255) << 24;
 			if( layer < 0 ) {

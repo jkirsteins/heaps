@@ -326,10 +326,22 @@ class MetalOut {
                 add(acc);
             }
             if (v.kind == Input) {
+				if (!isVertex) {
+					throw 'not implemented';
+				}
                 add('__in[__in_vid].');
             }
             if (v.kind == Param) {
-                add('__in_uniforms.');
+				if (isVertex) {
+					add('__in_uniforms.');
+				} else {
+					switch( v.type ) {
+						case TArray(TSampler2D, _):
+							// should be passed as args to function
+						default:
+							add('__in_uniforms.');
+					}
+				}
             }
 			if (v.kind == Global) {
 				add('__in_globals.');
@@ -338,12 +350,13 @@ class MetalOut {
                 add('__out.');
             }
             if ( v.kind == Var && !isVertex ) {
-                add('__in->');
+                add('__in.');
             }
 
             ident(v);
 		case TCall({ e : TGlobal(g = (Texture | TextureLod)) }, args):
             // throw args[0];
+			add('float4(');
 			addValue(args[0], tabs);
             add('.sample(__default_textureSampler');
 			// switch( g ) {
@@ -373,6 +386,7 @@ class MetalOut {
 			}
 			// if( g == Texture && isVertex )
 			// 	add(",0");
+			add(")");
 			add(")");
 		case TCall({ e : TGlobal(g = (Texel)) }, args):
 			addValue(args[0], tabs);
@@ -741,7 +755,13 @@ class MetalOut {
 			}
 		add("};\n\n");
 
-		add("struct s_input {\n");
+		if (isVertex) {
+			add("struct s_input {\n");
+		} else {
+			// frag input is vert output
+			add("struct VertOutput {\n");
+		}
+
 		if( !isVertex )
 			add("\tfloat4 position [[position]];\n");
 		for( v in s.vars ) {
@@ -843,17 +863,23 @@ class MetalOut {
 
 		// tmp
 		if (isVertex) {
+			// add('struct s_input_dbg {');
+			// add('	float2 position;');
+			// add('	float2 uv;');
+			// add('	float4 color;');
+			// add('};');
+
 			// add('vertex float4 vert_main(\n');
-			// add('const device s_input* vertex_array [[ buffer(0) ]],\n');
+			// add('const device s_input_dbg* vertex_array [[ buffer(0) ]],\n');
 			// add('unsigned int vid [[ vertex_id ]]) {\n');
 			// add('return float4(vertex_array[vid].position, 1.0);\n');
 			// add('}\n');
 			// return;
 		} else {
-			add('fragment half4 frag_main() {\n');
-			add('return half4(1.0);\n');
-			add('}\n');
-			return;
+			// add('fragment half4 frag_main() {\n');
+			// add('return half4(1.0, 0, 0, 1);\n');
+			// add('}\n');
+			// return;
 		}
 		// end tmp
 
@@ -867,16 +893,33 @@ class MetalOut {
 		add("(\n");
         if( isVertex ) {
 			add("\tunsigned int __in_vid [[vertex_id]],\n");
-        }
-        add("\tconst device s_input *__in [[buffer(0)]],\n");
-        add("\tconstant Uniforms &__in_uniforms [[buffer(1)]],\n");
-		add("\tconstant Globals &__in_globals [[buffer(2)]]\n");
+			add("\tconst device s_input *__in [[buffer(0)]],\n");
+			add("\tconstant Uniforms &__in_uniforms [[buffer(1)]],\n");
+			add("\tconstant Globals &__in_globals [[buffer(2)]]\n");
+		} else {
+			add("\tVertOutput __in [[stage_in]]");
+
+			for( v in s.vars ) {
+				if( v.kind == Param ) {
+					switch( v.type ) {
+						case TArray(_, _):
+							add(",\n\t");
+							addVar(v);
+							break;
+						default:
+							throw 'fragment param ${v.type} not implemented';
+					}
+				}
+			}
+		}
         add(") {\n");
 
         if (isVertex) {
             add('\n\tVertOutput __out;\n');
         } else {
-            add('\n\tFragOutput __out;\n');
+			add('\n\tconstexpr sampler __default_textureSampler (mag_filter::linear, min_filter::linear);');
+			// add('\n\tsampler __default_textureSampler;');
+			add('\n\tFragOutput __out;\n');
         }
 
         // skip locals for now
@@ -892,6 +935,16 @@ class MetalOut {
 		default:
 			addExpr(expr, "");
 		}
+
+		// if (!isVertex) {
+		// 	// temp: debug
+		// 	add("if (is_null_texture(fragmentTextures))\n");
+		// 	add("\t__out.OUTPUT1 = float4(0.0, 1.0, 0.0, 1.0);\n");
+		// 	add("else\n");
+		// 	add("\t__out.OUTPUT1 = fragmentTextures.sample(__default_textureSampler, float2(1.0, 1.0), level(0));\n");
+
+		// }
+
 		add("\treturn __out;\n");
 		add("}");
 
@@ -957,10 +1010,7 @@ class MetalOut {
         decl("#include <metal_stdlib>");
         decl("using namespace metal;");
 
-        decl('constexpr sampler __default_textureSampler (mag_filter::linear, min_filter::linear);');
-
-
-		initVars(s);
+        initVars(s);
 		// initGlobals(s);
 		// initParams(s);
 		// initStatics(s);
